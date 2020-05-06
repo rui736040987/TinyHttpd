@@ -65,12 +65,24 @@ void accept_request(void *arg)
     char path[512];
     size_t i, j;
     struct stat st;
+    int key_len = 0;
+    int val_len = 0;
+    char key_buf[255];
+    char val_buf[255];
+    char data[1024];    // post's data
+    int val = 0;
+    int index = 0;
+    int x = 0;          
     int cgi = 0;      /* becomes true if server decides this is a CGI
                        * program */
+    
     char *query_string = NULL;
+    cgi = recv(client, &buf, 1024, MSG_PEEK);
+    printf("all buf: %s\n", buf);
 
     numchars = get_line(client, buf, sizeof(buf));
     i = 0; j = 0;
+    // 第一行，获取请求方法，method=get?post
     while (!ISspace(buf[i]) && (i < sizeof(method) - 1))
     {
         method[i] = buf[i];
@@ -99,7 +111,8 @@ void accept_request(void *arg)
         i++; j++;
     }
     url[i] = '\0';
-
+    printf("url: %s\n", url);
+    
     if (strcasecmp(method, "GET") == 0)
     {
         query_string = url;
@@ -114,27 +127,47 @@ void accept_request(void *arg)
     }
 
     sprintf(path, "htdocs%s", url);
-    if (path[strlen(path) - 1] == '/')
-        strcat(path, "index.html");
-    if (stat(path, &st) == -1) {
-        while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
-            numchars = get_line(client, buf, sizeof(buf));
-        not_found(client);
-    }
-    else
-    {
-        if ((st.st_mode & S_IFMT) == S_IFDIR)
-            strcat(path, "/index.html");
-        if ((st.st_mode & S_IXUSR) ||
-                (st.st_mode & S_IXGRP) ||
-                (st.st_mode & S_IXOTH)    )
-            cgi = 1;
-        if (!cgi)
-            serve_file(client, path);
-        else
-            execute_cgi(client, path, method, query_string);
-    }
+    // 解码，处理
+    if (strcasecmp(url, "/decode") == 0){
+        printf("decode");
 
+        while ((numchars > 0) && strcmp("\n", buf)){  /* read & discard headers */
+        //while (strcmp("\n", buf))  /* read & discard headers */
+            numchars = get_line(client, buf, sizeof(buf));
+            key_len = get_key(buf, key_buf, numchars);
+            val_len = get_value(buf, val_buf, key_len, numchars);
+            if (strcasecmp(key_buf, "Content-Length")==0){
+                printf("key_buf=%s & %d \n", key_buf, key_len);
+                printf("val_buf=%s\n", val_buf);
+                val = atoi(val_buf);
+                if ( val > 0 ){
+                    numchars = recv(client, &buf, 1024, MSG_PEEK);
+                    printf("3 buf= %s\n", buf);
+                    int x = 0;
+                    // val+2 是因为后面读取的字符串，前两位是\r\n
+                    for (x=0;x < val+2;x++){
+                        if (buf[x] == '\r'){
+                            printf("%d is \\r \n", x);
+                            continue;
+                        }
+                        if (buf[x] == '\n'){
+                            printf("%d is \\n' \n", x);
+                            continue;
+                        }
+                        printf("%d, %c\n", x, buf[x]);
+                        data[index++] = buf[x];
+                    }
+                    data[index] = '\0';
+                }
+                printf("this hear =%s\n", data);
+                
+            }
+
+        }
+
+
+    }
+    
     close(client);
 }
 
@@ -344,8 +377,36 @@ int get_line(int sock, char *buf, int size)
             c = '\n';
     }
     buf[i] = '\0';
-
+    printf("i =  %d\n", i);
+    if ( buf[0] == '\n' ){
+        
+        printf("this n %d\n", 1);
+    }
+    printf("buff: %s\n", buf);
     return(i);
+}
+int get_key(char *buf,char *key_buf, int len){
+    int i = 0;
+
+    for (i=0;i<len;i++){
+        key_buf[i] = buf[i];
+        if (buf[i] == ':')
+            break;
+    }
+    key_buf[i] = '\0';
+    return i;
+}
+int get_value(char *buf,char *val_buf, int index, int len){
+    // +2 是为了跳过 : 和后面的一个空格
+    index = index + 2;
+    int i = index;
+    for (;i<len;i++){
+        val_buf[i-index] = buf[i];
+        if (buf[i] == '\n')
+            break;
+    }
+    val_buf[i-index] = '\0';
+    return i;
 }
 
 /**********************************************************************/
